@@ -1,0 +1,14 @@
+# PyInstaller intermediate build files
+build/
+*.spec
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environment / IDE
+.venv/
+venv/
+.idea/
+.vscode/
