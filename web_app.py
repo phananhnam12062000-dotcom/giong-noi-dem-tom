@@ -1079,9 +1079,10 @@ def create_shrimp_app():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Shrimp Counter Web App")
+    default_port = int(os.getenv("PORT", 7860))
     parser.add_argument("--share", action="store_true", default=True, help="Tạo link công khai HTTPS xxxx.gradio.live để mở trên điện thoại ngoài ao (Mặc định: BẬT)")
     parser.add_argument("--no-share", dest="share", action="store_false", help="Chỉ chạy mạng nội bộ, không tạo link công khai")
-    parser.add_argument("--port", type=int, default=7860, help="Cổng mạng (mặc định: 7860)")
+    parser.add_argument("--port", type=int, default=default_port, help=f"Cổng mạng (mặc định: {default_port})")
     args = parser.parse_args()
 
     # Tự động nhận diện môi trường Hugging Face Spaces
