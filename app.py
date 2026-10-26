@@ -21,8 +21,25 @@ import hashlib
 import datetime
 import subprocess
 import threading
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+# Tự động nhận diện nếu chạy trên máy chủ Render / Cloud Linux (không có giao diện GUI Tkinter)
+if os.getenv("RENDER") or (sys.platform != "win32" and not os.getenv("DISPLAY")):
+    import web_app
+    port = int(os.getenv("PORT", 10000))
+    print(f"🦐 Phát hiện máy chủ Cloud (Render) -> Tự động khởi chạy Web App Gradio trên cổng {port}...")
+    demo = web_app.create_shrimp_app()
+    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+    sys.exit(0)
+
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox, filedialog
+except (ImportError, ModuleNotFoundError):
+    import web_app
+    port = int(os.getenv("PORT", 10000))
+    print(f"🦐 Không tìm thấy thư viện Tkinter -> Khởi chạy Web App Gradio trên cổng {port}...")
+    demo = web_app.create_shrimp_app()
+    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+    sys.exit(0)
 
 # Đảm bảo in console tiếng Việt không lỗi trên Windows
 if sys.stdout and sys.stdout.encoding != 'utf-8':
