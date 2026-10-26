@@ -1084,11 +1084,18 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=7860, help="Cổng mạng (mặc định: 7860)")
     args = parser.parse_args()
 
+    # Tự động nhận diện môi trường Hugging Face Spaces
+    is_hf_space = bool(os.getenv("SPACE_ID"))
+    should_share = False if is_hf_space else args.share
+
     demo = create_shrimp_app()
     print("=" * 65)
-    print("🦐 ĐANG KHỞI CHẠY SMART SHRIMP COUNTER WEB APP (RESPONSIVE)...")
-    print(f"Truy cập máy tính: http://localhost:{args.port}")
-    if args.share:
-        print("Đang tạo đường dẫn HTTPS công khai để kết nối Micro từ Điện thoại...")
+    if is_hf_space:
+        print(f"🦐 ĐANG CHẠY TRÊN HUGGING FACE SPACES: {os.getenv('SPACE_ID')}")
+    else:
+        print("🦐 ĐANG KHỞI CHẠY SMART SHRIMP COUNTER WEB APP (RESPONSIVE)...")
+        print(f"Truy cập máy tính: http://localhost:{args.port}")
+        if should_share:
+            print("Đang tạo đường dẫn HTTPS công khai để kết nối Micro từ Điện thoại...")
     print("=" * 65)
-    demo.launch(server_name="0.0.0.0", server_port=args.port, share=args.share, theme=gr.themes.Soft(), css=CUSTOM_CSS)
+    demo.launch(server_name="0.0.0.0", server_port=args.port, share=should_share, theme=gr.themes.Soft(), css=CUSTOM_CSS)
