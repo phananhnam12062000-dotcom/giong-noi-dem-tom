@@ -108,11 +108,12 @@ VIETNAMESE_WORD_TO_NUMBER = {
 def convert_browser_audio_to_wav(input_path: str) -> Optional[str]:
     """
     Trình duyệt web di động (Android Chrome, iOS Safari) thường gửi file WebM (Opus)
-    hoặc M4A/Ogg. Hàm này sử dụng PyAV để giải mã và resample thành WAV chuẩn 16kHz mono.
+    hoặc M4A/Ogg. Hàm này sử dụng PyAV để giải mã, chuẩn hóa âm lượng và resample thành WAV chuẩn 16kHz mono.
     """
     if not input_path or not os.path.exists(input_path):
         return None
     try:
+        import numpy as np
         container = av.open(input_path)
         audio_stream = next((s for s in container.streams if s.type == 'audio'), None)
         if audio_stream is None:
@@ -124,17 +125,39 @@ def convert_browser_audio_to_wav(input_path: str) -> Optional[str]:
 
         resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
 
+        raw_frames = []
+        for frame in container.decode(audio_stream):
+            resampled_frames = resampler.resample(frame)
+            for r_frame in resampled_frames:
+                raw_frames.append(r_frame.to_ndarray())
+
+        # Flush resampler
+        flushed = resampler.resample(None)
+        if flushed:
+            for r_frame in flushed:
+                raw_frames.append(r_frame.to_ndarray())
+
+        container.close()
+
+        if not raw_frames:
+            return None
+
+        # Kết hợp các frame âm thanh thành mảng 1D
+        audio_data = np.concatenate(raw_frames, axis=1)[0]
+
+        # Tự động khuếch đại âm thanh nếu micro điện thoại thu quá nhỏ
+        max_amp = np.max(np.abs(audio_data))
+        if max_amp > 80:  # Không phải khoảng lặng tuyệt đối
+            scale = min(4.0, 26000.0 / max_amp)
+            if scale > 1.2:
+                audio_data = np.clip(audio_data * scale, -32768, 32767).astype(np.int16)
+
         with wave.open(out_wav, 'wb') as wav_out:
             wav_out.setnchannels(1)
             wav_out.setsampwidth(2)
             wav_out.setframerate(16000)
+            wav_out.writeframes(audio_data.tobytes())
 
-            for frame in container.decode(audio_stream):
-                resampled_frames = resampler.resample(frame)
-                for r_frame in resampled_frames:
-                    wav_out.writeframes(r_frame.to_ndarray().tobytes())
-
-        container.close()
         return out_wav
     except Exception as e:
         print(f"[Audio Convert Error]: {e}")
@@ -150,26 +173,30 @@ def transcribe_audio_file(audio_path: str) -> Tuple[str, str]:
 
     wav_path = convert_browser_audio_to_wav(audio_path)
     if not wav_path or not os.path.exists(wav_path):
-        return "", "Lỗi xử lý định dạng âm thanh từ trình duyệt."
+        if audio_path.lower().endswith(".wav"):
+            wav_path = audio_path
+        else:
+            return "", "Lỗi xử lý định dạng âm thanh từ trình duyệt."
 
     recognizer = sr.Recognizer()
     recognizer.dynamic_energy_threshold = True
-    recognizer.energy_threshold = 400
 
     try:
         with sr.AudioFile(wav_path) as source:
+            # Lọc nhiễu nền môi trường nhẹ
+            recognizer.adjust_for_ambient_noise(source, duration=0.2)
             audio_data = recognizer.record(source)
 
         text = recognizer.recognize_google(audio_data, language="vi-VN")
         return text.strip(), "Nhận diện thành công."
     except sr.UnknownValueError:
-        return "", "Không nhận diện được giọng nói (Vui lòng nói to và rõ hơn)."
+        return "", "Không nhận diện được giọng nói (Hãy nói to, rõ và bấm nút Stop ngay sau khi nói xong)."
     except sr.RequestError as e:
         return "", f"Lỗi kết nối mạng máy chủ Google Speech: {e}"
     except Exception as e:
         return "", f"Lỗi nhận diện âm thanh: {e}"
     finally:
-        if wav_path and os.path.exists(wav_path):
+        if wav_path and wav_path != audio_path and os.path.exists(wav_path):
             try:
                 os.remove(wav_path)
             except Exception:
@@ -584,9 +611,24 @@ body, .gradio-container {
 /* Thẻ thống kê KPI Dashboard (To rõ trên di động) */
 .kpi-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 14px;
+}
+@media (max-width: 650px) {
+    .kpi-container {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+    }
+    .kpi-card {
+        padding: 8px 10px !important;
+    }
+    .kpi-value {
+        font-size: 1.35rem !important;
+    }
+    .kpi-label {
+        font-size: 0.72rem !important;
+    }
 }
 .kpi-card {
     background: white;
@@ -681,12 +723,19 @@ def create_shrimp_app():
 
                 with gr.Row():
                     with gr.Column(scale=1):
+                        gr.HTML("""
+                        <div style="background: #e0f2fe; border: 1.5px solid #0284c7; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; color: #0c4a6e; font-size: 0.95rem; line-height: 1.5;">
+                            <strong>📢 HƯỚNG DẪN CÂN MẪU:</strong><br/>
+                            1️⃣ Bấm biểu tượng <strong>Micro</strong> ➔ Đọc số liệu (VD: <em>"45 gram đực"</em>, <em>"35 cái"</em>, <em>"xóa"</em>).<br/>
+                            2️⃣ Nói xong bấm ngay nút <strong>Stop</strong> (nút đỏ) ➔ <strong>Hệ thống sẽ TỰ ĐỘNG nhận diện & đọc loa ngay!</strong>
+                        </div>
+                        """)
                         audio_input_m1 = gr.Audio(
                             sources=["microphone", "upload"],
                             type="filepath",
-                            label="🎤 Bấm Micro để nói (Ví dụ: '45 gram đực', '30 gram cái', 'xóa')"
+                            label="🎤 Bấm Micro để nói (Nói xong bấm nút Stop đỏ)"
                         )
-                        btn_record_m1 = gr.Button("🎙️ Xử Lý Giọng Nói", variant="primary", elem_classes=["action-btn"])
+                        btn_record_m1 = gr.Button("🎙️ Xử Lý Giọng Nói (Hoặc bấm Stop ở trên)", variant="primary", elem_classes=["action-btn"])
                         
                         with gr.Row():
                             txt_manual_m1 = gr.Textbox(
@@ -742,12 +791,19 @@ def create_shrimp_app():
 
                 with gr.Row():
                     with gr.Column(scale=1):
+                        gr.HTML("""
+                        <div style="background: #e0f2fe; border: 1.5px solid #0284c7; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; color: #0c4a6e; font-size: 0.95rem; line-height: 1.5;">
+                            <strong>📢 HƯỚNG DẪN ĐẾM CỘNG DỒN:</strong><br/>
+                            1️⃣ Bấm biểu tượng <strong>Micro</strong> ➔ Đọc số con (VD: <em>"năm"</em>, <em>"mười lăm"</em>, <em>"ba lăm"</em>, <em>"xóa"</em>).<br/>
+                            2️⃣ Nói xong bấm ngay nút <strong>Stop</strong> (nút đỏ) ➔ <strong>Hệ thống sẽ TỰ ĐỘNG cộng dồn & đọc loa ngay!</strong>
+                        </div>
+                        """)
                         audio_input_m2 = gr.Audio(
                             sources=["microphone", "upload"],
                             type="filepath",
-                            label="🎤 Bấm Micro để nói (Ví dụ: 'năm', 'mười', 'mười lăm', 'xóa')"
+                            label="🎤 Bấm Micro để nói (Nói xong bấm nút Stop đỏ)"
                         )
-                        btn_record_m2 = gr.Button("🎙️ Xử Lý Giọng Nói", variant="primary", elem_classes=["action-btn"])
+                        btn_record_m2 = gr.Button("🎙️ Xử Lý Giọng Nói (Hoặc bấm Stop ở trên)", variant="primary", elem_classes=["action-btn"])
                         
                         with gr.Row():
                             txt_manual_m2 = gr.Textbox(
@@ -1020,6 +1076,11 @@ def create_shrimp_app():
             )
 
         # Gán sự kiện Chế độ 1
+        audio_input_m1.stop_recording(
+            process_mode1_input,
+            inputs=[audio_input_m1, txt_manual_m1, state_mode1],
+            outputs=[state_mode1, df_history_m1, html_kpi_m1, audio_feedback_m1, status_box_m1]
+        )
         btn_record_m1.click(
             process_mode1_input,
             inputs=[audio_input_m1, txt_manual_m1, state_mode1],
@@ -1042,6 +1103,11 @@ def create_shrimp_app():
         )
 
         # Gán sự kiện Chế độ 2
+        audio_input_m2.stop_recording(
+            process_mode2_input,
+            inputs=[audio_input_m2, txt_manual_m2, state_mode2],
+            outputs=[state_mode2, df_history_m2, html_kpi_m2, audio_feedback_m2, status_box_m2]
+        )
         btn_record_m2.click(
             process_mode2_input,
             inputs=[audio_input_m2, txt_manual_m2, state_mode2],
